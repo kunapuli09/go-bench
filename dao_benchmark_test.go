@@ -1,9 +1,11 @@
 package dao
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -11,22 +13,32 @@ import (
 	"github.comcast.com/viper-cog/clog"
 )
 
+// go test -bench Bench* -benchtime 1s
 // Unit Testing vs BenchMark testing semantics
 // traditional time before and after and run with data
 // go documentation
 // how to do test preparation and teardown
-// go test -bench Bench* -benchtime 1s
+// how to do benchmark parallel runs and what do you get from it
+// how do you test with Example Functions output if you are using custom logging
 // benchmark tests with time cap
-// benchmark tests on smaller functions
-// benchmark parallel runs
+// benchmark tests on super fast functions
 // benchmark test re-use
-// benchmark don't
+// benchmark don't do
 // bench mark test time
 
 /**
 command: go test -bench ConvertByteToMap -run XXX -benchtime 1s
 result : BenchmarkConvertByteToMap  300000   4031 ns/op
 */
+
+var mongo *MongoHandler
+
+//prepare a test
+func TestMain(m *testing.M) {
+	mongo, _ := NewMongoHandler("localhost:27017", "sde", "md", "ts")
+	os.Exit(m.Run())
+	mongo.Destroy()
+}
 func BenchmarkConvertByteToMap(b *testing.B) {
 	//, metric-test-24, 55bf7c335e9518552d96dc3f
 	reading := SampleSingleReading()
@@ -57,7 +69,6 @@ result : BenchmarkHash    2000000   792 ns/op
 */
 func BenchmarkHash(b *testing.B) {
 	reading := SampleSingleReading()
-	mongo, _ := NewMongoHandler("localhost:27017", "sde", "md", "ts")
 	for n := 0; n < b.N; n++ {
 		mongo.Hash(reading)
 	}
@@ -92,23 +103,41 @@ func benchmarkWriteTimeseries(number int, b *testing.B) {
 	for i := 0; i < number; i++ {
 		updates[i] = SampleSingleReading()
 	}
-	mongo, err := NewMongoHandler("localhost:27017", "sde", "md", "ts")
+	//mongo, err := NewMongoHandler("localhost:27017", "sde", "md", "ts")
 	//start a parallel update operation
+	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		if err != nil {
-			b.Fatal("didn't initialize mongo")
-		}
 		mongo.WriteTimeseries(updates)
 	}
 	//mongo.Destroy()
 
 }
+
+func BenchmarkParallelWriteTimeseries500(b *testing.B) {
+	b.RunParallel(func(pb *testing.PB) {
+		var buf bytes.Buffer
+		for pb.Next() {
+			buf.Reset()
+			// Initializing Mongo connection
+			m, _ := NewMongoHandler("localhost:27017", "sde", "md", "ts")
+			updates := make([][]byte, 500)
+			for i := 0; i < 500; i++ {
+				updates[i] = SampleSingleReading()
+			}
+			//mongo, err := NewMongoHandler("localhost:27017", "sde", "md", "ts")
+			//start a parallel update operation
+			m.WriteTimeseries(updates)
+			m.Destroy()
+		}
+
+	})
+}
 func SampleSingleReading() []byte {
 	top := time.Now().Truncate(time.Hour).String()
 	dataFeed := make(map[string]interface{})
 	dataFeed["top"] = top
-	dataFeed["metric"] = fmt.Sprint("metric-test-", strconv.Itoa(rand.Intn(5)))
-	dataFeed["metadataId"] = fmt.Sprint("aerf", rand.Intn(2), "hkjf")
+	dataFeed["metric"] = fmt.Sprint("metric-test-", strconv.Itoa(rand.Intn(100)))
+	dataFeed["metadataId"] = fmt.Sprint("aerf", rand.Intn(2000), "hkjf")
 	dataFeed["m"] = strconv.Itoa(rand.Intn(60))
 	dataFeed["s"] = strconv.Itoa(rand.Intn(12))
 	dataFeed["value"] = rand.Intn(100000)

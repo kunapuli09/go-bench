@@ -154,6 +154,7 @@ func (ts *TS) BuildMetricBucketBase(metric string, topOfTheHour string, mid stri
 	ts.Top = topOfTheHour
 	ts.MetadataId = mid
 	clog.Debugf("created an hour bucket for metric %s topofThehour %s", metric, topOfTheHour)
+	//fmt.Printf("created an hour bucket for metric %s topofThehour %s", metric, topOfTheHour)
 	return ts
 }
 
