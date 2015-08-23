@@ -4,13 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math/rand"
 	"os"
 	"strconv"
 	"testing"
 	"time"
-
-	"github.comcast.com/viper-cog/clog"
 )
 
 // go test -bench Bench* -benchtime 1s
@@ -37,6 +36,9 @@ var mongo *MongoHandler
 func TestMain(m *testing.M) {
 	mongo, _ := NewMongoHandler("localhost:27017", "sde", "md", "ts")
 	os.Exit(m.Run())
+	if nil == mongo {
+		fmt.Println("stop the tests")
+	}
 	mongo.Destroy()
 }
 func BenchmarkConvertByteToMap(b *testing.B) {
@@ -103,33 +105,41 @@ func benchmarkWriteTimeseries(number int, b *testing.B) {
 	for i := 0; i < number; i++ {
 		updates[i] = SampleSingleReading()
 	}
-	//mongo, err := NewMongoHandler("localhost:27017", "sde", "md", "ts")
+	m, _ := NewMongoHandler("localhost:27017", "sde", "md", "ts")
 	//start a parallel update operation
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		mongo.WriteTimeseries(updates)
+		m.WriteTimeseries(updates)
 	}
-	//mongo.Destroy()
-
+	m.Destroy()
 }
 
+/**
+go test -run XXX -bench BenchmarkParallelWriteTimeseries500  -benchtime 1s  -cpu 1,2,3,4  -blockprofile block.out  -coverprofile=coverage.out  -cpuprofile cpu.out
+
+go tool pprof --text go-bench.test block.out
+
+** instlall graphviz
+
+go tool pprof -png -output mem.png go-bench.test mem.out
+**/
 func BenchmarkParallelWriteTimeseries500(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		var buf bytes.Buffer
+		updates := make([][]byte, 500)
+		for i := 0; i < 500; i++ {
+			updates[i] = SampleSingleReading()
+		}
+		m, _ := NewMongoHandler("localhost:27017", "sde", "md", "ts")
 		for pb.Next() {
 			buf.Reset()
 			// Initializing Mongo connection
-			m, _ := NewMongoHandler("localhost:27017", "sde", "md", "ts")
-			updates := make([][]byte, 500)
-			for i := 0; i < 500; i++ {
-				updates[i] = SampleSingleReading()
-			}
+			//b.ResetTimer()
 			//mongo, err := NewMongoHandler("localhost:27017", "sde", "md", "ts")
 			//start a parallel update operation
 			m.WriteTimeseries(updates)
-			m.Destroy()
 		}
-
+		m.Destroy()
 	})
 }
 func SampleSingleReading() []byte {
@@ -143,7 +153,7 @@ func SampleSingleReading() []byte {
 	dataFeed["value"] = rand.Intn(100000)
 	b1, errb1 := json.Marshal(dataFeed)
 	if errb1 != nil {
-		clog.Error("Marshalling of datafeed failed.")
+		log.Fatal("Marshalling of datafeed failed.")
 	}
 	return b1
 }

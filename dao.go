@@ -4,16 +4,18 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"flag"
 	"fmt"
+	"log"
 	"strconv"
+	"time"
 
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
-
-	"github.comcast.com/viper-cog/clog"
 )
 
 var (
+	debug             bool
 	mongoAddr         string
 	mongoMdCollection string
 	mongoTsCollection string
@@ -58,11 +60,17 @@ func NewTS() *TS {
 	return &TS{}
 }
 
-func NewMongoHandler(maddr string, mdb string, mdcname string, mtsname string) (*MongoHandler, error) {
+func init() {
+	flag.BoolVar(&debug, "debug", false, "using default flag")
+	flag.Parse()
+}
 
-	clog.Debugf("mongodb address", maddr, mdb, mdcname, mtsname)
+func NewMongoHandler(maddr string, mdb string, mdcname string, mtsname string) (*MongoHandler, error) {
+	if debug == true {
+		log.Printf("mongodb address", maddr, mdb, mdcname, mtsname)
+	}
 	m := &MongoHandler{}
-	session, err := mgo.Dial(maddr)
+	session, err := mgo.DialWithTimeout(maddr, 20*time.Millisecond)
 	if err != nil {
 		return m, err
 	}
@@ -83,7 +91,7 @@ func (m *MongoHandler) WriteTimeseries(messages [][]byte) error {
 	for _, message := range messages {
 		in, err := ConvertByteToMap(message)
 		if err != nil {
-			clog.Errorf("Error transforming collectd data ")
+			log.Fatalf("Error transforming collectd data ")
 			continue
 		}
 		selector, updater := m.Prepare(in)
@@ -91,15 +99,31 @@ func (m *MongoHandler) WriteTimeseries(messages [][]byte) error {
 			continue
 		}
 		one := bson.M{"q": selector, "u": updater, "multi": false, "upsert": true}
-		clog.Debugf("appended update to bulk", one)
+		if debug == true {
+			log.Printf("appended update to bulk", one)
+		}
 		batch = append(batch, one)
 	}
 	if len(batch) > 0 {
 		var result interface{}
 		command := bson.M{"update": "ts", "updates": batch, "writeConcern": bson.M{"w": 0, "j": false, "wtimeout": 1000}, "ordered": false}
-		clog.Debugf("command:", command)
-		m.db.Run(command, result)
-		clog.Debugf("update result", result)
+		if debug == true {
+			log.Printf("command:", command)
+		}
+		//these are panics
+		if m == nil {
+			log.Fatal("nil mongo session not allowed, mongodb is a pre-req")
+		}
+		if m.db == nil {
+			log.Fatal("nil mongo database not allowed, mongodb is a pre-req")
+		}
+		if command == nil {
+			log.Fatal("nil command not allowed, mongodb is a pre-req")
+		}
+		m.db.Run(command, &result)
+		if debug == true {
+			log.Printf("update result", result)
+		}
 	}
 	return nil
 }
@@ -123,14 +147,18 @@ func (m *MongoHandler) Prepare(in map[string]interface{}) (bson.M, bson.M) {
 		skey := in[SEC].(string)
 		mid := in[METID].(string)
 		if len(top) == 0 || len(metric) == 0 || len(skey) == 0 || len(mkey) == 0 {
-			clog.Errorf("Invalid top %s metric %s mkey %s skey %s", top, metric, mkey, skey)
+			log.Fatalf("Invalid top %s metric %s mkey %s skey %s", top, metric, mkey, skey)
 			//return errors.New("Invalid data")
 		}
 		// build a document
 		updatekey = fmt.Sprintf("m.%s.s.%s", mkey, skey)
-		clog.Debug(updatekey)
+		if debug == true {
+			log.Print(updatekey)
+		}
 		selector = bson.M{TOP: top, METRIC: metric, METID: mid}
-		clog.Debug(selector)
+		if debug == true {
+			log.Print(selector)
+		}
 		updater = bson.M{"$set": bson.M{updatekey: bson.M{VALUE: in[VALUE]}}}
 		return selector, updater
 	}
@@ -153,14 +181,24 @@ func (ts *TS) BuildMetricBucketBase(metric string, topOfTheHour string, mid stri
 	ts.Metric = metric
 	ts.Top = topOfTheHour
 	ts.MetadataId = mid
-	clog.Debugf("created an hour bucket for metric %s topofThehour %s", metric, topOfTheHour)
+	if debug == true {
+		log.Print("created an hour bucket for metric %s topofThehour %s", metric, topOfTheHour)
+	}
 	//fmt.Printf("created an hour bucket for metric %s topofThehour %s", metric, topOfTheHour)
 	return ts
 }
 
+//good one
+// func ConvertByteToMap(msg []byte) (map[string]interface{}, error) {
+// 	var f interface{}
+// 	err := json.Unmarshal(msg, &f)
+// 	out := f.(map[string]interface{})
+// 	return out, err
+// }
+
+//slower
 func ConvertByteToMap(msg []byte) (map[string]interface{}, error) {
-	var f interface{}
+	f := make(map[string]interface{})
 	err := json.Unmarshal(msg, &f)
-	out := f.(map[string]interface{})
-	return out, err
+	return f, err
 }
