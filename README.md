@@ -1,2 +1,2 @@
 # go-bench
-demo a very rich go language benchmark tool
+Demo to Denver Gophers on benchmarking in golang
